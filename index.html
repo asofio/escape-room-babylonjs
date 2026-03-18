@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Babylon.js Escape Room</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "@babylonjs/core": "https://cdn.jsdelivr.net/npm/@babylonjs/core@7.48.0/index.js",
+          "@babylonjs/core/": "https://cdn.jsdelivr.net/npm/@babylonjs/core@7.48.0/",
+          "@babylonjs/": "https://cdn.jsdelivr.net/npm/@babylonjs/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <canvas id="renderCanvas"></canvas>
+
+    <div id="hudLayer">
+      <div id="centerCrosshair"></div>
+
+      <div id="instructionsPanel">
+        <strong>Controls</strong><br />
+        Move: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><br />
+        Look: Mouse<br />
+        Door interaction: <kbd>I</kbd><br />
+        Clues: mouse click objects
+      </div>
+
+      <div id="clueLedger">Clues found: [ ? ] [ ? ] [ ? ]</div>
+
+      <div id="interactionPrompt" class="hidden"></div>
+
+      <div id="cluePanel" class="modal hidden" role="dialog" aria-modal="true">
+        <h2>Clue Discovered</h2>
+        <p id="clueText"></p>
+        <button id="clueCloseBtn" type="button">Continue</button>
+      </div>
+
+      <div id="doorPanel" class="modal hidden" role="dialog" aria-modal="true">
+        <h2>Door Keypad</h2>
+        <p>Enter the three-number combination:</p>
+
+        <form id="doorForm" autocomplete="off">
+          <div class="codeRow">
+            <input id="code1" type="number" inputmode="numeric" />
+            <input id="code2" type="number" inputmode="numeric" />
+            <input id="code3" type="number" inputmode="numeric" />
+          </div>
+
+          <div class="buttonRow">
+            <button type="submit">Unlock Door</button>
+            <button id="doorCancelBtn" type="button">Cancel</button>
+          </div>
+        </form>
+
+        <p id="doorFeedback"></p>
+      </div>
+
+      <div id="winBanner" class="hidden">You escaped the room!</div>
+    </div>
+
+    <div id="snakeOverlay" class="hidden">
+      <div id="snakeContainer">
+        <div id="snakeMarquee">🐍 SNAKE 10 🐍</div>
+        <div id="snakeScoreBar">
+          <span id="snakeScore">Score: 0</span>
+        </div>
+        <canvas id="snakeCanvas"></canvas>
+        <div id="snakeControls">
+          <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to move
+          &nbsp;&nbsp;•&nbsp;&nbsp; <kbd>ESC</kbd> to quit
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
