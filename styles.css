@@ -152,7 +152,7 @@ body {
 
 .codeRow {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 12px;
 }
@@ -275,4 +275,74 @@ button:hover {
   color: #88cc88;
   font-size: 0.78rem;
   margin: 0 1px;
+}
+
+/* ── Inventory Bar ─────────────────────────────────────────────────────────── */
+#inventory-bar {
+  position: fixed;
+  right: 16px;
+  bottom: 80px;
+  width: 110px;
+  padding: 10px 10px 8px;
+  border-radius: 12px;
+  background: rgba(16, 16, 20, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  pointer-events: auto;
+  user-select: none;
+}
+
+#inv-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #c8d8f0;
+  text-align: center;
+  margin-bottom: 8px;
+  letter-spacing: 0.04em;
+}
+
+#inv-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 36px;
+}
+
+.inv-slot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.inv-slot:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.inv-slot--active {
+  background: rgba(80, 160, 255, 0.22);
+  border-color: rgba(100, 180, 255, 0.60);
+  box-shadow: 0 0 8px rgba(80, 160, 255, 0.3);
+}
+
+.inv-emoji {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.inv-label {
+  font-size: 0.78rem;
+  color: #e0eaff;
+}
+
+#inv-active {
+  margin-top: 7px;
+  font-size: 0.72rem;
+  color: #88bbee;
+  text-align: center;
+  min-height: 1em;
 }

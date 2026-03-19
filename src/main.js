@@ -8,6 +8,7 @@ import {
   Engine,
   HemisphericLight,
   MeshBuilder,
+  ParticleSystem,
   PointLight,
   Scene,
   SceneLoader,
@@ -64,34 +65,19 @@ const MODEL_LAYOUT = [
     rotationY: -Math.PI / 2,
     targetHeight: 2.2,
   },
-  // 4 dining chairs around the centre table (SheenChair from Babylon CDN)
-  // SheenChair default facing is +Z, so rotate each chair to face the table centre
+  // 2 dining chairs — one on each long side of the table (north and south)
   {
     name: "SheenChairN",
     url: "https://assets.babylonjs.com/meshes/SheenChair.glb",
-    position: new Vector3(0, 0, 0.7),
+    position: new Vector3(0, 0, 0.3),
     rotationY: Math.PI,        // faces south (-Z) toward table
     targetHeight: 1.0,
   },
   {
     name: "SheenChairS",
     url: "https://assets.babylonjs.com/meshes/SheenChair.glb",
-    position: new Vector3(0, 0, -1.65),
+    position: new Vector3(0, 0, -1.3),
     rotationY: 0,              // faces north (+Z) toward table
-    targetHeight: 1.0,
-  },
-  {
-    name: "SheenChairE",
-    url: "https://assets.babylonjs.com/meshes/SheenChair.glb",
-    position: new Vector3(1.1, 0, -0.5),
-    rotationY: -Math.PI / 2,  // faces west (-X) toward table
-    targetHeight: 1.0,
-  },
-  {
-    name: "SheenChairW",
-    url: "https://assets.babylonjs.com/meshes/SheenChair.glb",
-    position: new Vector3(-1.1, 0, -0.5),
-    rotationY: Math.PI / 2,   // faces east (+X) toward table
     targetHeight: 1.0,
   },
 ];
@@ -106,14 +92,14 @@ function randomUniqueNumbers(count, min, max) {
   return pool.slice(0, count);
 }
 
-const [cn1, cn2, cn3] = randomUniqueNumbers(3, 1, 9);
+const [cn1, cn2, cn3, cn4] = randomUniqueNumbers(4, 1, 9);
 
 const CLUE_DEFINITIONS = [
   {
     id: "clock",
     number: cn1,
     message: `A stopped desk clock is frozen at ${cn1}. That number looks deliberate.`,
-    position: new Vector3(0, 0.98, -0.5),
+    position: new Vector3(0, 0.82, -0.5),
     color: new Color3(0.88, 0.76, 0.26),
   },
   {
@@ -129,6 +115,13 @@ const CLUE_DEFINITIONS = [
     message: `A postcard hidden behind the King Kong poster reads "Cabin No. ${cn3}". The number is circled in red ink.`,
     position: new Vector3(2.2, 2.15, 4.3),
     color: new Color3(0.85, 0.46, 0.3),
+  },
+  {
+    id: "sinkPaper",
+    number: cn4,
+    message: `A soggy note at the bottom of the sink reads: "Lucky number: ${cn4}" — scrawled in blue ink.`,
+    position: new Vector3(5.44, 1.05, 0.0),
+    color: new Color3(0.3, 0.65, 0.95),
   },
 ];
 
@@ -153,6 +146,7 @@ const ui = {
     requiredElement("code1"),
     requiredElement("code2"),
     requiredElement("code3"),
+    requiredElement("code4"),
   ],
   doorCancelBtn: requiredElement("doorCancelBtn"),
   doorFeedback: requiredElement("doorFeedback"),
@@ -174,6 +168,13 @@ const gameState = {
   transientPrompt: { text: "", until: 0 },
   arcadeInRange: false,
   snakeCompleted: false,
+  // Inventory
+  inventory: [],       // array of { id, label, emoji }
+  activeItem: null,    // id of selected inventory item
+  pliersPicked: false,
+  sinkDrained: false,
+  sinkInRange: false,
+  pliersInRange: false,
 };
 
 function showPrompt(text) {
@@ -196,6 +197,38 @@ function updateClueLedger() {
     return `[ ${typeof value === "number" ? value : "?"} ]`;
   });
   ui.clueLedger.textContent = `Clues found: ${slots.join(" ")}`;
+}
+
+function renderInventoryBar() {
+  const bar = document.getElementById("inventory-bar");
+  if (!bar) return;
+  const slotsEl = bar.querySelector("#inv-slots");
+  if (!slotsEl) return;
+  slotsEl.innerHTML = "";
+  gameState.inventory.forEach(({ id, label, emoji }) => {
+    const slot = document.createElement("div");
+    slot.className = "inv-slot" + (gameState.activeItem === id ? " inv-slot--active" : "");
+    slot.innerHTML = `<span class="inv-emoji">${emoji}</span><span class="inv-label">${label}</span>`;
+    slot.addEventListener("click", () => selectInventoryItem(id));
+    slotsEl.appendChild(slot);
+  });
+  const activeEl = bar.querySelector("#inv-active");
+  if (activeEl) {
+    activeEl.textContent = gameState.activeItem
+      ? `Using: ${gameState.inventory.find(i => i.id === gameState.activeItem)?.label ?? ""}`
+      : "";
+  }
+}
+
+function addToInventory(id, label, emoji) {
+  if (gameState.inventory.find(i => i.id === id)) return;
+  gameState.inventory.push({ id, label, emoji });
+  renderInventoryBar();
+}
+
+function selectInventoryItem(id) {
+  gameState.activeItem = gameState.activeItem === id ? null : id;
+  renderInventoryBar();
 }
 
 function openOverlay(element) {
@@ -258,8 +291,13 @@ function createRoom(scene) {
   ceiling.position.y = ROOM.height;
   ceiling.rotation.x = Math.PI;
   const ceilingMaterial = new StandardMaterial("ceilingMaterial", scene);
-  ceilingMaterial.diffuseColor = new Color3(0.88, 0.87, 0.84);
-  ceilingMaterial.specularColor = new Color3(0.05, 0.05, 0.05);
+  const ceilingTex = new Texture("./textures/concrete_tile_facade_diff_2k.jpg", scene, true, false);
+  ceilingTex.uScale = 4;
+  ceilingTex.vScale = 3;
+  ceilingMaterial.diffuseTexture = ceilingTex;
+  ceilingMaterial.diffuseColor = new Color3(0.7, 0.7, 0.7);
+  ceilingMaterial.emissiveColor = new Color3(0.28, 0.27, 0.25);
+  ceilingMaterial.specularColor = new Color3(0.02, 0.02, 0.02);
   ceiling.material = ceilingMaterial;
   ceiling.checkCollisions = true;
   ceiling.isPickable = false;
@@ -618,32 +656,6 @@ function createProceduralFurniture(scene) {
   lampBulbMaterial.emissiveColor = new Color3(0.5, 0.44, 0.3);
   lampBulbMaterial.specularColor = new Color3(0.2, 0.2, 0.2);
 
-  // ── Dining table (centre of room) ────────────────────────────────────────
-  const tableTop = MeshBuilder.CreateBox(
-    "tableTop",
-    { width: 1.6, depth: 1.1, height: 0.12 },
-    scene,
-  );
-  tableTop.position = new Vector3(0, 0.92, -0.5);
-  tableTop.material = woodMaterial;
-
-  const tableLegOffsets = [
-    new Vector3(-0.68, -0.43, -0.43),
-    new Vector3( 0.68, -0.43, -0.43),
-    new Vector3(-0.68, -0.43,  0.43),
-    new Vector3( 0.68, -0.43,  0.43),
-  ];
-  const tableLegs = tableLegOffsets.map((offset, index) => {
-    const leg = MeshBuilder.CreateBox(
-      `tableLeg${index}`,
-      { width: 0.1, depth: 0.1, height: 0.86 },
-      scene,
-    );
-    leg.position = tableTop.position.add(offset);
-    leg.material = woodMaterial;
-    return leg;
-  });
-
   // ── Kitchen counter against east wall ─────────────────────────────────────
   // width (X) = depth from wall, depth (Z) = length along wall
   // Base cabinet (0.92 tall) + separate marble slab (0.04) keep total surface at y=0.96
@@ -658,7 +670,7 @@ function createProceduralFurniture(scene) {
   // Marble countertop slab (sits on top of base cabinet, slight overhang)
   const marbleTex = new DynamicTexture("marbleCounterTex", { width: 512, height: 512 }, scene, false);
   const mtCtx = marbleTex.getContext();
-  mtCtx.fillStyle = "#f4f1ed";
+  mtCtx.fillStyle = "#c4c0b8";
   mtCtx.fillRect(0, 0, 512, 512);
   const drawVein = (x1, y1, cx1, cy1, cx2, cy2, x2, y2, color, w) => {
     mtCtx.strokeStyle = color; mtCtx.lineWidth = w;
@@ -692,24 +704,25 @@ function createProceduralFurniture(scene) {
 
   // ── Ceramic sink basin ────────────────────────────────────────────────────
   const ceramicMat = new StandardMaterial("ceramicMat", scene);
-  ceramicMat.diffuseColor = new Color3(0.93, 0.93, 0.92);
-  ceramicMat.specularColor = new Color3(0.45, 0.45, 0.45);
-  ceramicMat.specularPower = 64;
+  ceramicMat.diffuseColor = new Color3(0.18, 0.18, 0.18);
+  ceramicMat.emissiveColor = new Color3(0.08, 0.08, 0.08);
+  ceramicMat.specularColor = new Color3(0.5, 0.5, 0.5);
+  ceramicMat.specularPower = 80;
 
   const chromeMat = new StandardMaterial("chromeMat", scene);
-  chromeMat.diffuseColor = new Color3(0.82, 0.82, 0.85);
-  chromeMat.specularColor = new Color3(0.95, 0.95, 0.95);
-  chromeMat.specularPower = 200;
+  chromeMat.diffuseColor = new Color3(0.58, 0.58, 0.62);
+  chromeMat.specularColor = new Color3(0.70, 0.70, 0.70);
+  chromeMat.specularPower = 120;
 
   const basinDrainMat = new StandardMaterial("basinDrainMat", scene);
   basinDrainMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
 
-  // Sink anchor — top of counter surface
-  const SX = 5.24, SY = 0.96, SZ = -0.28;
+  // Sink anchor — centered on the counter surface, scooted toward the east wall
+  const SX = 5.44, SY = 0.96, SZ = 0.0;
 
   // Outer rim / ledge
   const sinkRim = MeshBuilder.CreateBox("sinkRim",
-    { width: 0.62, depth: 0.52, height: 0.03 }, scene);
+    { width: 0.52, depth: 0.62, height: 0.03 }, scene);
   sinkRim.position = new Vector3(SX, SY + 0.015, SZ);
   sinkRim.material = ceramicMat;
 
@@ -717,68 +730,181 @@ function createProceduralFurniture(scene) {
   const basinParts = [];
   // bottom
   const basinBot = MeshBuilder.CreateBox("basinBot",
-    { width: 0.46, depth: 0.36, height: 0.018 }, scene);
+    { width: 0.36, depth: 0.46, height: 0.018 }, scene);
   basinBot.position = new Vector3(SX, SY + 0.028, SZ);
   basinBot.material = ceramicMat;
   basinParts.push(basinBot);
   // left wall
   const basinL = MeshBuilder.CreateBox("basinL",
-    { width: 0.028, depth: 0.36, height: 0.13 }, scene);
-  basinL.position = new Vector3(SX - 0.216, SY + 0.093, SZ);
+    { width: 0.028, depth: 0.46, height: 0.13 }, scene);
+  basinL.position = new Vector3(SX - 0.166, SY + 0.093, SZ);
   basinL.material = ceramicMat;
   basinParts.push(basinL);
   // right wall
   const basinR = MeshBuilder.CreateBox("basinR",
-    { width: 0.028, depth: 0.36, height: 0.13 }, scene);
-  basinR.position = new Vector3(SX + 0.216, SY + 0.093, SZ);
+    { width: 0.028, depth: 0.46, height: 0.13 }, scene);
+  basinR.position = new Vector3(SX + 0.166, SY + 0.093, SZ);
   basinR.material = ceramicMat;
   basinParts.push(basinR);
   // back wall
   const basinBk = MeshBuilder.CreateBox("basinBk",
-    { width: 0.46, depth: 0.028, height: 0.13 }, scene);
-  basinBk.position = new Vector3(SX, SY + 0.093, SZ - 0.166);
+    { width: 0.36, depth: 0.028, height: 0.13 }, scene);
+  basinBk.position = new Vector3(SX, SY + 0.093, SZ - 0.216);
   basinBk.material = ceramicMat;
   basinParts.push(basinBk);
   // front wall
   const basinFt = MeshBuilder.CreateBox("basinFt",
-    { width: 0.46, depth: 0.028, height: 0.13 }, scene);
-  basinFt.position = new Vector3(SX, SY + 0.093, SZ + 0.166);
+    { width: 0.36, depth: 0.028, height: 0.13 }, scene);
+  basinFt.position = new Vector3(SX, SY + 0.093, SZ + 0.216);
   basinFt.material = ceramicMat;
   basinParts.push(basinFt);
-  // drain
-  const drain = MeshBuilder.CreateCylinder("sinkDrain",
-    { diameter: 0.055, height: 0.014, tessellation: 16 }, scene);
-  drain.position = new Vector3(SX, SY + 0.02, SZ);
-  drain.material = basinDrainMat;
 
-  // Chrome faucet
+  // Basin floor top surface: SY + 0.028 + 0.009 = SY + 0.037
+  const DRAIN_Y = SY + 0.037;
+  // Chrome outer ring
+  const drainRing = MeshBuilder.CreateCylinder("sinkDrainRing",
+    { diameter: 0.078, height: 0.007, tessellation: 24 }, scene);
+  drainRing.position = new Vector3(SX, DRAIN_Y + 0.0035, SZ);
+  drainRing.material = chromeMat;
+  // Dark recessed hole
+  const drainHole = MeshBuilder.CreateCylinder("sinkDrainHole",
+    { diameter: 0.054, height: 0.006, tessellation: 20 }, scene);
+  drainHole.position = new Vector3(SX, DRAIN_Y + 0.001, SZ);
+  drainHole.material = basinDrainMat;
+  // Grate — two chrome bars crossing over the hole
+  [0, Math.PI / 2].forEach((rot, i) => {
+    const bar = MeshBuilder.CreateBox(`sinkDrainBar${i}`,
+      { width: 0.056, depth: 0.008, height: 0.007 }, scene);
+    bar.position = new Vector3(SX, DRAIN_Y + 0.007, SZ);
+    bar.rotation.y = rot;
+    bar.material = chromeMat;
+  });
+
+  // ── Animated water pool ────────────────────────────────────────────────────
+  const waterPoolTex = new DynamicTexture("waterPoolTex", { width: 128, height: 128 }, scene, false);
+  const waterPoolMat = new StandardMaterial("waterPoolMat", scene);
+  waterPoolMat.diffuseTexture = waterPoolTex;
+  waterPoolMat.emissiveColor = new Color3(0.10, 0.28, 0.52);
+  waterPoolMat.alpha = 0.82;
+  waterPoolMat.backFaceCulling = false;
+
+  const waterPool = MeshBuilder.CreatePlane("waterPool", { width: 0.30, height: 0.40 }, scene);
+  waterPool.position = new Vector3(SX, SY + 0.145, SZ);
+  waterPool.rotation.x = Math.PI / 2;
+  waterPool.material = waterPoolMat;
+  waterPool.isPickable = false;  // clicks must pass through to drain stopper below
+
+  // Ripple state
+  const ripples = [];
+  let rippleFrame = 0;
+  scene.registerBeforeRender(() => {
+    rippleFrame++;
+    // Spawn a new ripple every ~40 frames (where faucet drip would land)
+    if (rippleFrame % 40 === 0) {
+      ripples.push({
+        x: 0.38 + (Math.random() - 0.5) * 0.18,
+        y: 0.45 + (Math.random() - 0.5) * 0.12,
+        r: 0.01,
+      });
+    }
+    const ctx = waterPoolTex.getContext();
+    // Water base
+    ctx.fillStyle = "rgba(25, 75, 145, 0.95)";
+    ctx.fillRect(0, 0, 128, 128);
+    // Subtle surface shimmer lines
+    ctx.strokeStyle = "rgba(80, 150, 230, 0.18)";
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) {
+      const y = ((rippleFrame * 0.4 + i * 25) % 128);
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(128, y + 6); ctx.stroke();
+    }
+    // Draw and advance ripples
+    for (let i = ripples.length - 1; i >= 0; i--) {
+      const rp = ripples[i];
+      rp.r += 0.022;
+      const alpha = Math.max(0, 1 - rp.r / 0.55);
+      if (alpha <= 0) { ripples.splice(i, 1); continue; }
+      const cx = rp.x * 128, cy = rp.y * 128, rad = rp.r * 128;
+      ctx.beginPath();
+      ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(160, 215, 255, ${alpha * 0.85})`;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      // Inner secondary ring
+      if (rad > 6) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, rad * 0.55, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(200, 235, 255, ${alpha * 0.4})`;
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+      }
+    }
+    waterPoolTex.update();
+  });
   const faucetStem = MeshBuilder.CreateCylinder("faucetStem",
     { diameter: 0.038, height: 0.22, tessellation: 14 }, scene);
-  faucetStem.position = new Vector3(SX, SY + 0.25, SZ - 0.14);
+  faucetStem.position = new Vector3(SX + 0.14, SY + 0.25, SZ);
   faucetStem.material = chromeMat;
 
   const faucetNeck = MeshBuilder.CreateTorus("faucetNeck",
     { diameter: 0.18, thickness: 0.028, tessellation: 20 }, scene);
-  faucetNeck.position = new Vector3(SX, SY + 0.37, SZ - 0.06);
+  faucetNeck.position = new Vector3(SX + 0.06, SY + 0.37, SZ);
   faucetNeck.rotation.x = Math.PI / 2;
   faucetNeck.material = chromeMat;
 
   const faucetSpout = MeshBuilder.CreateCylinder("faucetSpout",
     { diameter: 0.028, height: 0.1, tessellation: 12 }, scene);
-  faucetSpout.position = new Vector3(SX, SY + 0.34, SZ + 0.03);
-  faucetSpout.rotation.x = Math.PI / 2;
+  faucetSpout.position = new Vector3(SX - 0.03, SY + 0.34, SZ);
+  faucetSpout.rotation.z = Math.PI / 2;
   faucetSpout.material = chromeMat;
 
-  // Handles
-  [-0.14, 0.14].forEach((dx, i) => {
+  // Handles — flanking the stem along Z (parallel to wall)
+  [-0.14, 0.14].forEach((dz, i) => {
     const handle = MeshBuilder.CreateCylinder(`faucetHandle${i}`,
       { diameter: 0.018, height: 0.09, tessellation: 10 }, scene);
-    handle.position = new Vector3(SX + dx, SY + 0.22, SZ - 0.14);
-    handle.rotation.z = Math.PI / 2;
+    handle.position = new Vector3(SX + 0.14, SY + 0.22, SZ + dz);
+    handle.rotation.x = Math.PI / 2;
     handle.material = chromeMat;
   });
 
-  // ── Coffee table with the sofa ─────────────────────────────────────────────
+  // ── Water particle stream from faucet ─────────────────────────────────────
+  // Soft circle gradient texture for droplets
+  const waterParticleTex = new DynamicTexture("waterParticleTex", { width: 32, height: 32 }, scene, false);
+  const wpCtx = waterParticleTex.getContext();
+  const wpGrad = wpCtx.createRadialGradient(16, 16, 0, 16, 16, 16);
+  wpGrad.addColorStop(0, "rgba(255,255,255,1)");
+  wpGrad.addColorStop(0.45, "rgba(180,220,255,0.85)");
+  wpGrad.addColorStop(1, "rgba(80,160,255,0)");
+  wpCtx.fillStyle = wpGrad;
+  wpCtx.beginPath(); wpCtx.arc(16, 16, 16, 0, Math.PI * 2); wpCtx.fill();
+  waterParticleTex.update();
+
+  const waterSystem = new ParticleSystem("waterFlow", 180, scene);
+  waterSystem.particleTexture = waterParticleTex;
+  // Emit from just below the faucet spout tip
+  waterSystem.emitter = new Vector3(SX - 0.08, SY + 0.33, SZ);
+  waterSystem.minEmitBox = new Vector3(-0.005, 0, -0.005);
+  waterSystem.maxEmitBox = new Vector3(0.005, 0, 0.005);
+  // Blue water gradient
+  waterSystem.color1    = new Color4(0.55, 0.80, 1.00, 0.90);
+  waterSystem.color2    = new Color4(0.30, 0.60, 0.95, 0.75);
+  waterSystem.colorDead = new Color4(0.70, 0.88, 1.00, 0.00);
+  // Small droplets
+  waterSystem.minSize = 0.010;
+  waterSystem.maxSize = 0.020;
+  // Short lifetime — particles fall ~34 cm to the basin
+  waterSystem.minLifeTime = 0.28;
+  waterSystem.maxLifeTime = 0.42;
+  waterSystem.emitRate = 110;
+  // Emit straight down with tiny lateral spread
+  waterSystem.direction1 = new Vector3(-0.008, -1.0, -0.008);
+  waterSystem.direction2 = new Vector3(0.008, -1.0, 0.008);
+  waterSystem.minEmitPower = 0.55;
+  waterSystem.maxEmitPower = 0.80;
+  waterSystem.gravity = new Vector3(0, -4.5, 0);
+  waterSystem.updateSpeed = 0.016;
+  waterSystem.blendMode = ParticleSystem.BLENDMODE_ADD;
+  waterSystem.start();
   const coffeeTableMat = new StandardMaterial("coffeeTableMat", scene);
   coffeeTableMat.diffuseColor = new Color3(0.32, 0.2, 0.1);
   coffeeTableMat.specularColor = new Color3(0.35, 0.35, 0.35);
@@ -850,13 +976,83 @@ function createProceduralFurniture(scene) {
   wallLampLight.range = 7;
 
   setCollisionFlags(
-    [tableTop, ...tableLegs, counter, marbleSlab, sinkRim, ...basinParts, drain, faucetStem, faucetNeck, faucetSpout],
+    [counter, marbleSlab, sinkRim, ...basinParts, drainRing, drainHole, faucetStem, faucetNeck, faucetSpout],
     true,
   );
   setCollisionFlags(
     [wallLampBackplate, wallLampArm, wallLampShade, wallLampBulb],
     false,
   );
+
+  // ── Drain stopper (rubber plug sitting on drain grate) ────────────────────
+  const stopperMat = new StandardMaterial("drainStopperMat", scene);
+  stopperMat.diffuseColor = new Color3(0.12, 0.10, 0.10);
+  stopperMat.emissiveColor = new Color3(0.06, 0.05, 0.05);
+  const drainStopper = MeshBuilder.CreateCylinder("drainStopper",
+    { diameter: 0.058, height: 0.022, tessellation: 18 }, scene);
+  drainStopper.position = new Vector3(SX, DRAIN_Y + 0.018, SZ);
+  drainStopper.material = stopperMat;
+  drainStopper.isPickable = true;
+  drainStopper.metadata = { type: "drainStopper" };
+
+  // ── Sink clue paper (lying flat in basin) ─────────────────────────────────
+  const paperTex = new DynamicTexture("sinkPaperTex", { width: 256, height: 160 }, scene, false);
+  const pCtx = paperTex.getContext();
+  pCtx.fillStyle = "#fffde8";
+  pCtx.fillRect(0, 0, 256, 160);
+  pCtx.strokeStyle = "#c8c8a0";
+  pCtx.lineWidth = 3;
+  pCtx.strokeRect(4, 4, 248, 152);
+  // Ruled lines
+  pCtx.strokeStyle = "#d0d8e0";
+  pCtx.lineWidth = 1;
+  [40, 60, 80, 100, 120, 140].forEach(y => {
+    pCtx.beginPath(); pCtx.moveTo(12, y); pCtx.lineTo(244, y); pCtx.stroke();
+  });
+  pCtx.fillStyle = "#1a3a7a";
+  pCtx.font = "bold 18px serif";
+  pCtx.fillText("Lucky number:", 20, 35);
+  pCtx.font = "bold 52px serif";
+  pCtx.fillStyle = "#0d2a5e";
+  const clueNum = CLUE_DEFINITIONS.find(c => c.id === "sinkPaper").number;
+  pCtx.fillText(String(clueNum), 100, 115);
+  paperTex.update();
+
+  // Number face (faces down when card is face-down → hidden from above)
+  const paperFrontMat = new StandardMaterial("sinkPaperFrontMat", scene);
+  paperFrontMat.diffuseTexture = paperTex;
+  paperFrontMat.emissiveColor = new Color3(0.12, 0.12, 0.10);
+  paperFrontMat.backFaceCulling = true;
+
+  // Cream back face (faces up when card is face-down → visible from above)
+  const paperBackMat = new StandardMaterial("sinkPaperBackMat", scene);
+  paperBackMat.diffuseColor = new Color3(0.94, 0.92, 0.84);
+  paperBackMat.emissiveColor = new Color3(0.14, 0.13, 0.10);
+  paperBackMat.backFaceCulling = true;
+
+  // Root node controls the flip; start face-down
+  const sinkPaperMesh = new TransformNode("sinkPaperRoot", scene);
+  sinkPaperMesh.position = new Vector3(SX - 0.04, DRAIN_Y + 0.052, SZ + 0.05);
+  sinkPaperMesh.rotation.x = -Math.PI / 2;
+
+  // Front plane (number) — local rotation=0 → normal faces DOWN in world when root face-down
+  const paperFront = MeshBuilder.CreatePlane("sinkPaperFront", { width: 0.14, height: 0.09 }, scene);
+  paperFront.parent = sinkPaperMesh;
+  paperFront.material = paperFrontMat;
+  paperFront.isPickable = false;
+
+  // Back plane (cream) — local rotation.y=PI → normal faces UP in world when root face-down
+  const paperBack = MeshBuilder.CreatePlane("sinkPaperBack", { width: 0.14, height: 0.09 }, scene);
+  paperBack.parent = sinkPaperMesh;
+  paperBack.rotation.y = Math.PI;
+  paperBack.material = paperBackMat;
+  paperBack.isPickable = true;
+  paperBack.metadata = { clueId: "sinkPaper" };
+
+  // pliersMeshes populated after GLTF load in createScene
+  const pliersMeshes = [];
+
+  return { waterPool, waterSystem, drainStopper, sinkPaperMesh, pliersMeshes };
 }
 
 function drawPostcard(ctx, w, h, number) {
@@ -1056,108 +1252,13 @@ function createClueObjects(scene) {
     anchor.position.copyFrom(clue.position);
 
     if (clue.id === "clock") {
-      const clockCaseMaterial = new StandardMaterial(`clockCaseMaterial-${clue.id}`, scene);
-      clockCaseMaterial.diffuseColor = new Color3(0.15, 0.13, 0.12);
-      clockCaseMaterial.specularColor = new Color3(0.24, 0.24, 0.24);
-
-      const clockFaceMaterial = new StandardMaterial(`clockFaceMaterial-${clue.id}`, scene);
-      clockFaceMaterial.diffuseColor = new Color3(0.92, 0.9, 0.86);
-      clockFaceMaterial.specularColor = new Color3(0.18, 0.18, 0.18);
-
-      const clockAccentMaterial = new StandardMaterial(`clockAccentMaterial-${clue.id}`, scene);
-      clockAccentMaterial.diffuseColor = clue.color;
-      clockAccentMaterial.emissiveColor = clue.color.scale(0.22);
-      clockAccentMaterial.specularColor = new Color3(0.2, 0.2, 0.2);
-
-      const clockBody = MeshBuilder.CreateBox(
-        `clue-${clue.id}-body`,
-        { width: 0.24, height: 0.16, depth: 0.08 },
-        scene,
-      );
-      clockBody.parent = anchor;
-      clockBody.position = new Vector3(0, 0.09, 0);
-      clockBody.material = clockCaseMaterial;
-
-      const clockFace = MeshBuilder.CreateCylinder(
-        `clue-${clue.id}-face`,
-        { diameter: 0.12, height: 0.01, tessellation: 24 },
-        scene,
-      );
-      clockFace.parent = anchor;
-      clockFace.position = new Vector3(0, 0.1, -0.044);
-      clockFace.rotation.x = Math.PI / 2;
-      clockFace.material = clockFaceMaterial;
-
-      const minuteHand = MeshBuilder.CreateBox(
-        `clue-${clue.id}-minute-hand`,
-        { width: 0.008, height: 0.052, depth: 0.007 },
-        scene,
-      );
-      minuteHand.parent = anchor;
-      minuteHand.position = new Vector3(0.015, 0.108, -0.05);
-      minuteHand.rotation.z = Math.PI * 0.24;
-      minuteHand.material = clockAccentMaterial;
-
-      const hourHand = MeshBuilder.CreateBox(
-        `clue-${clue.id}-hour-hand`,
-        { width: 0.008, height: 0.032, depth: 0.007 },
-        scene,
-      );
-      hourHand.parent = anchor;
-      hourHand.position = new Vector3(-0.008, 0.102, -0.05);
-      hourHand.rotation.z = -Math.PI * 0.3;
-      hourHand.material = clockAccentMaterial;
-
-      const clockBase = MeshBuilder.CreateBox(
-        `clue-${clue.id}-base`,
-        { width: 0.18, height: 0.03, depth: 0.1 },
-        scene,
-      );
-      clockBase.parent = anchor;
-      clockBase.position = new Vector3(0, 0.015, 0.01);
-      clockBase.material = clockCaseMaterial;
-
-      const leftBell = MeshBuilder.CreateSphere(
-        `clue-${clue.id}-left-bell`,
-        { diameter: 0.05, segments: 12 },
-        scene,
-      );
-      leftBell.parent = anchor;
-      leftBell.position = new Vector3(-0.07, 0.18, -0.003);
-      leftBell.material = clockAccentMaterial;
-
-      const rightBell = MeshBuilder.CreateSphere(
-        `clue-${clue.id}-right-bell`,
-        { diameter: 0.05, segments: 12 },
-        scene,
-      );
-      rightBell.parent = anchor;
-      rightBell.position = new Vector3(0.07, 0.18, -0.003);
-      rightBell.material = clockAccentMaterial;
-
-      const topHandle = MeshBuilder.CreateTorus(
-        `clue-${clue.id}-handle`,
-        { diameter: 0.1, thickness: 0.01, tessellation: 24 },
-        scene,
-      );
-      topHandle.parent = anchor;
-      topHandle.position = new Vector3(0, 0.205, -0.002);
-      topHandle.material = clockCaseMaterial;
-
-      [
-        clockBody,
-        clockFace,
-        minuteHand,
-        hourHand,
-        clockBase,
-        leftBell,
-        rightBell,
-        topHandle,
-      ].forEach((mesh) => markInteractive(mesh, clue.id));
+      // Mesh loaded from GLTF in createScene and parented to this anchor
     } else if (clue.id === "receipt") {
       // Winner's ticket is revealed by winning the arcade Snake game (revealArcadeClue)
     } else if (clue.id === "metalTag") {
       // Visual (postcard) is created by createKingKongSwingPoster — only anchor needed here.
+    } else if (clue.id === "sinkPaper") {
+      // Mesh is created inside createProceduralFurniture; anchor is added to clueMeshes from there.
     }
 
     clueMap.set(clue.id, anchor);
@@ -1291,7 +1392,7 @@ function registerDoorUI(scene, camera, doorNode) {
     event.preventDefault();
     const values = ui.codeInputs.map((input) => Number(input.value));
     if (values.some((value) => Number.isNaN(value))) {
-      ui.doorFeedback.textContent = "Please enter all three numbers.";
+      ui.doorFeedback.textContent = "Please enter all four numbers.";
       return;
     }
 
@@ -1372,6 +1473,36 @@ function registerClueUI(scene, camera, clueMeshes, posterState) {
     // Postcard hidden behind King Kong — poster must be open first
     if (clueId === "metalTag" && posterState && !posterState.isOpen) {
       setTransientPrompt("There's something pinned behind the King Kong poster...", 2200);
+      return;
+    }
+
+    // Sink paper — water must be drained first
+    if (clueId === "sinkPaper" && !gameState.sinkDrained) {
+      setTransientPrompt("The water is too hot to pick up the clue.", 2200);
+      return;
+    }
+
+    // Sink paper — flip animation before revealing the clue
+    if (clueId === "sinkPaper" && gameState.sinkDrained && !gameState.discoveredNumbers.has("sinkPaper")) {
+      const anchor = clueMeshes.get("sinkPaper");
+      if (!anchor) return;
+      if (Vector3.Distance(camera.position, anchor.position) > 3.15) {
+        setTransientPrompt("Move closer to inspect that clue.", 1600);
+        return;
+      }
+      const flipAnim = new Animation(
+        "sinkPaperFlip", "rotation.x", 60,
+        Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT,
+      );
+      flipAnim.setKeys([
+        { frame: 0,  value: -Math.PI / 2 },
+        { frame: 20, value: 0 },           // edge-on (halfway)
+        { frame: 40, value: Math.PI / 2 }, // face-up
+      ]);
+      const flipTarget = pickedMesh.parent || pickedMesh;
+      scene.beginDirectAnimation(flipTarget, [flipAnim], 0, 40, false, 1.0, () => {
+        showClue("sinkPaper");
+      });
       return;
     }
 
@@ -1794,9 +1925,11 @@ async function createScene() {
   const room = createRoom(scene);
   createOutdoorScene(scene);
   createWallPosters(scene);
-  createProceduralFurniture(scene);
+  const furnitureRefs = createProceduralFurniture(scene);
   const { interactionPoint: arcadeInteractionPoint, joystickPos } = createArcadeMachine(scene);
   const clueMeshes = createClueObjects(scene);
+  // Wire the sink paper mesh into the clue map so registerClueUI distance check works
+  clueMeshes.set("sinkPaper", furnitureRefs.sinkPaperMesh);
   const { posterState, hinge: kkHinge } = createKingKongSwingPoster(scene);
 
   // Poster-swing click listener (separate from clue interaction)
@@ -1843,10 +1976,127 @@ async function createScene() {
     }),
   );
 
+  // Load mantel clock GLTF and attach to the clock clue anchor
+  try {
+    const clockImport = await SceneLoader.ImportMeshAsync("", "./models/", "mantel_clock_01_4k.gltf", scene);
+    const clockAnchor = clueMeshes.get("clock");
+    // Re-parent all top-level meshes to the anchor
+    clockImport.meshes
+      .filter(m => m.parent === null)
+      .forEach(m => { m.parent = clockAnchor; });
+    // Scale and orient: model is roughly 0.22 m tall, sits on table at anchor position
+    clockAnchor.scaling = new Vector3(1.4, 1.4, 1.4);
+    // Mark every mesh as interactive for the clock clue
+    clockImport.meshes.forEach(m => {
+      m.isPickable = true;
+      m.metadata = { clueId: "clock" };
+      m.checkCollisions = false;
+    });
+  } catch (err) {
+    console.error("Failed to load mantel clock GLTF:", err);
+  }
+
+  // Load wooden_table_02 GLTF — replaces the procedural dining table
+  try {
+    const tableImport = await SceneLoader.ImportMeshAsync("", "./models/", "wooden_table_02_2k.gltf", scene);
+    tableImport.meshes.forEach(m => {
+      m.checkCollisions = true;
+      m.isPickable = false;
+    });
+    // Centre of room, floor-level; table top is at y ≈ 0.80 m (real-world scale)
+    const tableRoot = tableImport.meshes.find(m => m.parent === null) || tableImport.meshes[0];
+    tableRoot.position = new Vector3(0, 0, -0.5);
+    tableRoot.rotationQuaternion = null;
+    tableRoot.rotation.y = 0;
+  } catch (err) {
+    console.error("Failed to load wooden_table_02 GLTF:", err);
+  }
+
+  // Load bolt_cutters_01 GLTF — lying flat in the SW corner of the room
+  try {
+    const bcImport = await SceneLoader.ImportMeshAsync("", "./models/", "bolt_cutters_01_2k.gltf", scene);
+    // SW corner: (-4.8, floor, -4.4); rotate so they lie flat (long axis along X) angled into corner
+    const bcRoot = bcImport.meshes.find(m => m.parent === null) || bcImport.meshes[0];
+    bcRoot.rotationQuaternion = null;
+    bcRoot.rotation.x = Math.PI / 2;   // tip long axis from Y → -Z (lay flat)
+    bcRoot.rotation.y = Math.PI * 1.25; // angle diagonally into SW corner
+    bcRoot.position = new Vector3(-4.8, 0.01, -4.4);
+    bcImport.meshes.forEach(m => {
+      m.checkCollisions = false;
+      m.isPickable = true;
+      m.metadata = { type: "pickup", itemId: "pliers" };
+    });
+    // Store refs so the pickup handler can hide them
+    furnitureRefs.pliersMeshes.push(...bcImport.meshes);
+  } catch (err) {
+    console.error("Failed to load bolt_cutters_01 GLTF:", err);
+  }
+
   registerDoorUI(scene, camera, room.doorHinge);
   registerClueUI(scene, camera, clueMeshes, posterState);
   registerArcadeUI(camera, scene, arcadeInteractionPoint, joystickPos);
   updateClueLedger();
+
+  // ── Drain sink animation ───────────────────────────────────────────────────
+  const drainSink = () => {
+    if (gameState.sinkDrained) return;
+    furnitureRefs.waterSystem.stop();
+    furnitureRefs.drainStopper.isVisible = false;
+    const startAlpha = furnitureRefs.waterPool.material.alpha;
+    const totalFrames = 180;
+    let frame = 0;
+    const drainObs = scene.onBeforeRenderObservable.add(() => {
+      frame++;
+      furnitureRefs.waterPool.material.alpha = startAlpha * Math.max(0, 1 - frame / totalFrames);
+      if (frame >= totalFrames) {
+        furnitureRefs.waterPool.isVisible = false;
+        gameState.sinkDrained = true;
+        scene.onBeforeRenderObservable.remove(drainObs);
+        setTransientPrompt("The sink is drained. Something is on the bottom!", 2800);
+      }
+    });
+  };
+
+  // ── Pliers pickup + drain stopper click handler ───────────────────────────
+  window.addEventListener("click", () => {
+    if (gameState.overlayOpen || gameState.escaped) return;
+    if (document.pointerLockElement !== canvas) return;
+    const cx = engine.getRenderWidth() / 2;
+    const cy = engine.getRenderHeight() / 2;
+    const pickResult = scene.pick(cx, cy);
+    const pickedMesh = pickResult?.pickedMesh;
+    if (!pickedMesh) return;
+
+    // Pliers pickup
+    if (pickedMesh.metadata?.type === "pickup" && pickedMesh.metadata?.itemId === "pliers") {
+      if (!gameState.pliersPicked) {
+        gameState.pliersPicked = true;
+        addToInventory("pliers", "Bolt Cutters", "✂️");
+        furnitureRefs.pliersMeshes.forEach(m => { m.isPickable = false; m.isVisible = false; });
+        setTransientPrompt("You picked up the bolt cutters!", 1800);
+      }
+      return;
+    }
+
+    // Drain stopper
+    if (pickedMesh.metadata?.type === "drainStopper") {
+      if (Vector3.Distance(camera.position, furnitureRefs.drainStopper.position) > 2.8) {
+        setTransientPrompt("Move closer to the sink.", 1600);
+        return;
+      }
+      if (!gameState.pliersPicked) {
+        setTransientPrompt("You need something to remove the drain plug.", 1800);
+      } else {
+        drainSink();
+        setTransientPrompt("You remove the drain plug with the bolt cutters.", 2200);
+      }
+      return;
+    }
+  });
+
+  // Proximity points
+  const sinkPoint = new Vector3(5.44, 0.96, 0.0);
+  const pliersPoint = new Vector3(-4.8, 0.5, -4.4);
 
   scene.onBeforeRenderObservable.add(() => {
     const frameTime = performance.now();
@@ -1854,6 +2104,8 @@ async function createScene() {
     gameState.doorInRange = doorDistance <= 2.1;
     const arcadeDistance = Vector3.Distance(camera.position, arcadeInteractionPoint);
     gameState.arcadeInRange = arcadeDistance <= 2.5;
+    gameState.sinkInRange = Vector3.Distance(camera.position, sinkPoint) <= 2.5;
+    gameState.pliersInRange = Vector3.Distance(camera.position, pliersPoint) <= 2.0;
 
     if (!gameState.escaped && gameState.doorUnlocked && camera.position.z < room.exitThresholdZ) {
       gameState.escaped = true;
@@ -1873,6 +2125,12 @@ async function createScene() {
         showPrompt('Press [I] to begin playing Snake!');
       } else if (gameState.arcadeInRange && gameState.snakeCompleted && !gameState.discoveredNumbers.has("receipt")) {
         showPrompt('Check the arcade joystick for your prize!');
+      } else if (gameState.pliersInRange && !gameState.pliersPicked) {
+        showPrompt('Click the bolt cutters to pick them up.');
+      } else if (gameState.sinkInRange && !gameState.sinkDrained && gameState.pliersPicked) {
+        showPrompt('Aim at the drain plug and click to remove it.');
+      } else if (gameState.sinkInRange && !gameState.sinkDrained && !gameState.pliersPicked) {
+        showPrompt('Something is in the sink — but the water looks scalding hot.');
       } else if (
         gameState.doorInRange &&
         !gameState.overlayOpen &&

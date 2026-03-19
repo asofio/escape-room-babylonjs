@@ -96,6 +96,14 @@ Once you have all three numbers, walk up to the door and press `I` to enter the 
 
 ---
 
+## Screenshots
+
+![Screenshot 1](screenshots/screenshot-1.png)
+
+![Screenshot 2](screenshots/screenshot-2.png)
+
+---
+
 ## Tech stack
 
 - **[Babylon.js 7.48](https://www.babylonjs.com/)** — 3D engine (ES modules via jsDelivr CDN)

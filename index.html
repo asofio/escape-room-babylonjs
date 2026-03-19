@@ -29,7 +29,7 @@
         Clues: mouse click objects
       </div>
 
-      <div id="clueLedger">Clues found: [ ? ] [ ? ] [ ? ]</div>
+      <div id="clueLedger">Clues found: [ ? ] [ ? ] [ ? ] [ ? ]</div>
 
       <div id="interactionPrompt" class="hidden"></div>
 
@@ -41,13 +41,14 @@
 
       <div id="doorPanel" class="modal hidden" role="dialog" aria-modal="true">
         <h2>Door Keypad</h2>
-        <p>Enter the three-number combination:</p>
+        <p>Enter the four-number combination:</p>
 
         <form id="doorForm" autocomplete="off">
           <div class="codeRow">
             <input id="code1" type="number" inputmode="numeric" />
             <input id="code2" type="number" inputmode="numeric" />
             <input id="code3" type="number" inputmode="numeric" />
+            <input id="code4" type="number" inputmode="numeric" />
           </div>
 
           <div class="buttonRow">
@@ -74,6 +75,13 @@
           &nbsp;&nbsp;•&nbsp;&nbsp; <kbd>ESC</kbd> to quit
         </div>
       </div>
+    </div>
+
+    <!-- Inventory sidebar -->
+    <div id="inventory-bar">
+      <div id="inv-title">🎒 Inventory</div>
+      <div id="inv-slots"></div>
+      <div id="inv-active"></div>
     </div>
 
     <script type="module" src="./src/main.js"></script>
